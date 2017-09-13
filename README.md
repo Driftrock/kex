@@ -26,7 +26,7 @@ Example:
 kex -n staging --context=mycompany-eu -- landing-web rails c
 ```
 
-## Deployment and Pod assumptions
+### Deployment and Pod assumptions
 
 To make the `kex` command work out of box we choosed to adopt few assumptions
 about the deployment and the pod specification in it:
