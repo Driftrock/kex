@@ -1,5 +1,5 @@
 # KEX - Kubernetes EXec
-_Run command in new pod based on deployment_
+_Run command in a new pod created with deployment configuration - just like you would with `heroku run`_
 
 In production environment applications are deployed in k8s
 using Deployment. That creates Replica Sets and Pods
