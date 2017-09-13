@@ -1,0 +1,128 @@
+#!/usr/bin/env ruby
+require 'json'
+require 'shell'
+
+# KEX - Kubernetes EXec
+# Run command in new pod based on deployment
+#
+# In production environment applications are deployed in k8s
+# using Deployment. That creates Replica Sets and Pods
+#
+# In case of need to connect to the production console,
+# usually one do `kubectl exec` on the existing pod. That has few disadvantages:
+# - production pod can be terminated by new deployment during the session
+# - mistake in production pod can cause pod to die causing application outage
+# - one needs to look for the pod name which is randomize by deployment
+#
+# This script uses deployment name to get the pod spec template from it,
+# enhance the spec to allow headless application container to run, then
+# creates the pod and exec into it. After session closes it deletes the pod.
+#
+# Usage:
+# kex [kubectl options] -- deployment_name command...
+#
+# Example:
+# kex -n staging -- landing-web rails c
+#
+# Known limitations:
+# - will not work with deployments using persistant volumes
+# - 
+
+def main
+  kubectl_args  = ARGV.take_while { |opt| opt != '--' }
+  kubectl_options = kubectl_args.join(' ')
+  app_name = ARGV[kubectl_args.size + 1]
+  command_options = ARGV[(kubectl_args.size + 2) .. -1]
+  command = command_options.join(" ")
+
+  run_pod_session(app_name, command, kubectl_options)
+end
+
+def run_pod_session(app_name, command, kubectl_options)
+  original_pod_spec = get_pod_spec_for_app(app_name, kubectl_options)
+  create_pod_spec = create_pod_spec_from_original(original_pod_spec, app_name)
+  pod_name = create_pod(create_pod_spec, kubectl_options)
+
+  # Wait until the container is running
+  puts "Waiting for pod to start..."
+  # TODO actually wait for it
+  sleep 5
+
+  # Exec in the running pod with given command
+  system("kubectl #{kubectl_options} exec -c #{app_name} -it #{pod_name} #{command}")
+
+  # Delete the pod
+  puts "Deleting pod #{pod_name} ..."
+  system("kubectl #{kubectl_options} delete pod #{pod_name}")
+end
+
+# Create pod with given spec Hash and kubectl options string
+def create_pod(pod_spec, kubectl_options)
+  sh = Shell.new
+  new_pod_json = (sh.echo(pod_spec.to_json) | sh.system("kubectl #{kubectl_options} create -o json -f -")).to_s
+
+  new_pod = JSON.parse(new_pod_json)
+  pod_name = new_pod["metadata"]["name"]
+
+  puts "Created pod: #{pod_name}"
+  pod_name
+end
+
+def get_pod_spec_for_app(app_name, kubectl_options)
+  pods_json = %x( kubectl #{kubectl_options} get pods -l app=#{app_name} -o json )
+  pods_list = JSON.parse(pods_json)
+
+  pods_list["items"][0]
+end
+
+# Generate new pod spec
+
+def create_pod_spec_from_original(pod_spec, app_name)
+  {
+    "apiVersion" => pod_spec["apiVersion"],
+    "kind" => pod_spec["kind"],
+    "metadata" => {
+      "generateName" => pod_spec["metadata"]["generateName"] + "kex-",
+      "labels" =>
+        pod_spec["metadata"]["labels"]
+        .merge("app" => pod_spec["metadata"]["labels"]["app"] + "-kex"),
+      "namespace" => pod_spec["metadata"]["namespace"]
+    },
+    "spec" => {
+      "containers" => patch_containers_for_run(pod_spec["spec"]["containers"], app_name),
+      "volumes" => pod_spec["spec"]["volumes"]
+    }
+  }
+end
+
+def patch_containers_for_run(containers_spec, app_name)
+  # Finds and updates container with name app_name
+  # and append other containers to the list as they are
+  app_container = containers_spec.find { |s| s["name"] == app_name }
+  raise "Pod must have container with name #{app_name}!" unless app_container
+
+  other_containers = containers_spec.select { |s| s["name"] != app_name }
+  [patch_container_for_run(app_container)] + other_containers
+end
+
+def patch_container_for_run(container_spec)
+  # Update container spec with sleep command
+  # and no liveneess and readiness probes
+
+  # Only copy whitelisted attributes:
+  {
+    "args" => ["sleep 300"],
+    "command" => ["/bin/sh", "-c"], # just start shell so it keeps container running waiting for input
+    "env" => container_spec["env"],
+    "envFrom" => container_spec["envFrom"],
+    "image" => container_spec["image"],
+    "imagePullPolicy" => container_spec["imagePullPolicy"],
+    "name" => container_spec["name"],
+    "stdinOnce" => true, # this is to keep /bin/sh running
+    "tty" => true,
+    "resources" => container_spec["resources"],
+    "volumeMounts" => container_spec["volumeMounts"]
+  }
+end
+
+main()
