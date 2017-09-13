@@ -23,7 +23,7 @@ kex [kubectl options] -- deployment_name command...
 Example:
 
 ```sh
-kex -n staging --cluster=mycompany-eu -- landing-web rails c
+kex -n staging --context=mycompany-eu -- landing-web rails c
 ```
 
 ## Deployment and Pod assumptions
