@@ -31,13 +31,13 @@ kex -n staging --context=mycompany-eu -- landing-web rails c
 To make the `kex` command work out of box we choosed to adopt few assumptions
 about the deployment and the pod specification in it:
 
-- Deployment pod specification has to container container with the same name as the deployment
+- Deployment pod specification has to contain a container with the same name as the deployment
 - Pod should have label with name "app". This will be altered with suffix '-kex'
 - The container with deployment name will be used to run the command
 
 ## Known limitations
 
-- will not work with deployments using persistant volumes
+- will not work with deployments using persistent volumes
 
 ## Contributions
 
